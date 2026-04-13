@@ -12,3 +12,5 @@ services:
     environment:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8765
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}

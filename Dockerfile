@@ -15,7 +15,11 @@ FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/bot-binary .
 
-RUN apk add --no-cache tzdata ca-certificates
+RUN apk add --no-cache tzdata ca-certificates su-exec
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Run natively using Alpine directly without massive OS overhead!
-ENTRYPOINT ["./bot-binary"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["./bot-binary"]
