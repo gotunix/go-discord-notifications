@@ -33,6 +33,7 @@ package bot
 import (
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -118,6 +119,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		cmdHelp(s, m)
 	case "!status":
 		cmdStatus(s, m)
+	case "!version":
+		cmdVersion(s, m)
 	case "!ping":
 		cmdPing(s, m)
 	case "!say":
@@ -155,6 +158,7 @@ func cmdHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
 		[]*discordgo.MessageEmbedField{
 			{Name: "!help", Value: "This help message", Inline: false},
 			{Name: "!status", Value: "Show bot & server status", Inline: false},
+			{Name: "!version", Value: "Display compiled Go modules & dependencies", Inline: false},
 			{Name: "!ping", Value: "Check bot latency", Inline: false},
 			{Name: "!say <message>", Value: "Post a message to the notification channel", Inline: false},
 			{Name: "!dm <uid> <msg>", Value: "Send a DM to a Discord user by ID", Inline: false},
@@ -206,6 +210,45 @@ func cmdStatus(s *discordgo.Session, m *discordgo.MessageCreate) {
 			{Name: "Webhook Server", Value: fmt.Sprintf("`%s:%s`", config.ServerHost, config.ServerPort), Inline: false},
 			{Name: "Webhook Auth", Value: authStatus, Inline: true},
 		},
+		"",
+	)
+	s.ChannelMessageSendEmbed(m.ChannelID, embed)
+}
+
+func cmdVersion(s *discordgo.Session, m *discordgo.MessageCreate) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		s.ChannelMessageSend(m.ChannelID, "❌ Build info not available")
+		return
+	}
+
+	var fields []*discordgo.MessageEmbedField
+	fields = append(fields, &discordgo.MessageEmbedField{Name: "Go Version", Value: fmt.Sprintf("`%s`", info.GoVersion), Inline: true})
+	
+	mainVer := info.Main.Version
+	if mainVer == "" || mainVer == "(devel)" {
+		mainVer = "custom-build"
+	}
+	fields = append(fields, &discordgo.MessageEmbedField{Name: "Main Module", Value: fmt.Sprintf("`%s` @ `%s`", info.Main.Path, mainVer), Inline: false})
+
+	deps := ""
+	for i, dep := range info.Deps {
+		if i >= 15 {
+			deps += fmt.Sprintf("... and %d more\n", len(info.Deps)-15)
+			break
+		}
+		deps += fmt.Sprintf("`%s` @ `%s`\n", dep.Path, dep.Version)
+	}
+	
+	if deps != "" {
+		fields = append(fields, &discordgo.MessageEmbedField{Name: "Dependencies", Value: deps, Inline: false})
+	}
+
+	embed := BuildEmbed(
+		"📦 Bot Version Info",
+		"Compiled Golang architectures natively.",
+		0x9B59B6,
+		fields,
 		"",
 	)
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
