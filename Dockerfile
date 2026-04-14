@@ -2,10 +2,9 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod ./
-# Add go.sum generation explicitly by running tidy securely
-# since the host mapping did not run native Go tools directly
-COPY . .
+# Go source files now live under src/ for clean project structure
+COPY src/go.mod ./
+COPY src/ .
 RUN go mod tidy
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o bot-binary main.go
