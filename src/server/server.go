@@ -79,6 +79,32 @@ var tailscaleSeverity = map[string]string{
 	"posture-integration-removed": "warning",
 }
 
+var seerrConfig = map[string]struct {
+	Color int
+	Icon  string
+}{
+	"MEDIA_PENDING":       {0xE67E22, "⏳"},
+	"MEDIA_APPROVED":      {0x2ECC71, "✅"},
+	"MEDIA_AVAILABLE":     {0x2ECC71, "🍿"},
+	"MEDIA_FAILED":        {0xE74C3C, "❌"},
+	"MEDIA_DECLINED":      {0xE74C3C, "🚫"},
+	"MEDIA_AUTO_APPROVED": {0x2ECC71, "🤖"},
+	"MEMBER_JOINED":       {0x3498DB, "👋"},
+	"ISSUE_CREATED":       {0xE67E22, "⚠️"},
+	"ISSUE_RESOLVED":      {0x2ECC71, "✅"},
+	"ISSUE_COMMENT":       {0x3498DB, "💬"},
+	"TEST_NOTIFICATION":   {0x2ECC71, "🧪"},
+}
+
+func getMapValue(m map[string]interface{}, keys ...string) map[string]interface{} {
+	for _, k := range keys {
+		if v, ok := m[k].(map[string]interface{}); ok {
+			return v
+		}
+	}
+	return nil
+}
+
 func checkAuth(r *http.Request) error {
 	if config.WebhookSecret == "" {
 		return nil
@@ -197,6 +223,7 @@ func notifyHandler(w http.ResponseWriter, r *http.Request) {
 			sevMap.Color,
 			nil,
 			fmt.Sprintf("Source: generic webhook • %s", time.Now().UTC().Format(time.RFC3339)),
+			"",
 			channelID,
 			userIDs,
 		)
@@ -280,12 +307,103 @@ func tailscaleHandler(w http.ResponseWriter, r *http.Request) {
 			fields,
 			fmt.Sprintf("Tailscale webhook • received %s", time.Now().UTC().Format(time.RFC3339)),
 			"",
+			"",
 			nil,
 		)
 		processed = append(processed, eventType)
 	}
 
 	sendJSON(w, map[string]interface{}{"status": "queued", "processed_events": processed}, 200)
+}
+
+func seerrHandler(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		sendJSON(w, map[string]string{"error": "Request body must be valid JSON."}, 400)
+		return
+	}
+
+	notifType, _ := payload["notification_type"].(string)
+	subject, _ := payload["subject"].(string)
+	message, _ := payload["message"].(string)
+	image, _ := payload["image"].(string)
+
+	cfg, ok := seerrConfig[notifType]
+	if !ok {
+		cfg = struct {
+			Color int
+			Icon  string
+		}{0x3498DB, "🔔"}
+	}
+
+	title := fmt.Sprintf("%s %s", cfg.Icon, subject)
+	if subject == "" {
+		title = fmt.Sprintf("%s Overseerr Notification", cfg.Icon)
+	}
+
+	var fields []*discordgo.MessageEmbedField
+
+	// Media Info
+	if media := getMapValue(payload, "media", "{{media}}"); media != nil {
+		mType, _ := media["media_type"].(string)
+		mStatus, _ := media["status"].(string)
+		if mType != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{Name: "Type", Value: strings.Title(mType), Inline: true})
+		}
+		if mStatus != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{Name: "Status", Value: mStatus, Inline: true})
+		}
+	}
+
+	// Request Info
+	if request := getMapValue(payload, "request", "{{request}}"); request != nil {
+		user, _ := request["requestedBy_username"].(string)
+		if user != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{Name: "Requested By", Value: user, Inline: true})
+		}
+	}
+
+	// Issue Info
+	if issue := getMapValue(payload, "issue", "{{issue}}"); issue != nil {
+		iType, _ := issue["issue_type"].(string)
+		iStatus, _ := issue["issue_status"].(string)
+		if iType != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{Name: "Issue Type", Value: iType, Inline: true})
+		}
+		if iStatus != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{Name: "Issue Status", Value: iStatus, Inline: true})
+		}
+	}
+
+	// Dynamic Routing
+	var channelID string
+	if cid, ok := payload["channel_id"].(string); ok {
+		channelID = cid
+	}
+
+	var userIDs []string
+	if uids, ok := payload["user_ids"].([]interface{}); ok {
+		for _, u := range uids {
+			if us, ok := u.(string); ok {
+				userIDs = append(userIDs, us)
+			}
+		}
+	} else if uid, ok := payload["user_id"].(string); ok {
+		userIDs = append(userIDs, uid)
+	}
+
+	bot.DispatchNotification(
+		title,
+		message,
+		cfg.Color,
+		fields,
+		fmt.Sprintf("Overseerr • %s", time.Now().UTC().Format(time.RFC3339)),
+		image,
+		channelID,
+		userIDs,
+	)
+
+	sendJSON(w, map[string]string{"status": "queued"}, 200)
 }
 
 func customHandler(w http.ResponseWriter, r *http.Request) {
@@ -363,7 +481,7 @@ func customHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		bot.DispatchNotification(title, description, color, fields, footer, channelID, userIDs)
+		bot.DispatchNotification(title, description, color, fields, footer, "", channelID, userIDs)
 		processedCount++
 	}
 
@@ -387,6 +505,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		},
 		"Triggered via GET /webhook/test",
 		"",
+		"",
 		nil,
 	)
 	sendJSON(w, map[string]interface{}{"status": "queued", "message": "Test notification fired."}, 200)
@@ -405,6 +524,7 @@ func Start() {
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/webhook/notify", requireAuth(notifyHandler))
 	mux.HandleFunc("/webhook/tailscale", requireAuth(tailscaleHandler))
+	mux.HandleFunc("/webhook/seerr", requireAuth(seerrHandler))
 	mux.HandleFunc("/webhook/custom", requireAuth(customHandler))
 	mux.HandleFunc("/webhook/test", requireAuth(testHandler))
 

@@ -134,7 +134,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func BuildEmbed(title, description string, color int, fields []*discordgo.MessageEmbedField, footer string) *discordgo.MessageEmbed {
+func BuildEmbed(title, description string, color int, fields []*discordgo.MessageEmbedField, footer, imageURL string) *discordgo.MessageEmbed {
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: description,
@@ -146,6 +146,9 @@ func BuildEmbed(title, description string, color int, fields []*discordgo.Messag
 	}
 	if footer != "" {
 		embed.Footer = &discordgo.MessageEmbedFooter{Text: footer}
+	}
+	if imageURL != "" {
+		embed.Thumbnail = &discordgo.MessageEmbedThumbnail{URL: imageURL}
 	}
 	return embed
 }
@@ -166,6 +169,7 @@ func cmdHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
 			{Name: "!targets", Value: "Show configured notification targets", Inline: false},
 		},
 		"Commands work in DMs only.",
+		"",
 	)
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
 }
@@ -211,6 +215,7 @@ func cmdStatus(s *discordgo.Session, m *discordgo.MessageCreate) {
 			{Name: "Webhook Auth", Value: authStatus, Inline: true},
 		},
 		"",
+		"",
 	)
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
 }
@@ -249,6 +254,7 @@ func cmdVersion(s *discordgo.Session, m *discordgo.MessageCreate) {
 		"Compiled Golang architectures natively.",
 		0x9B59B6,
 		fields,
+		"",
 		"",
 	)
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
@@ -320,7 +326,7 @@ func cmdTargets(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, strings.Join(lines, "\n"))
 }
 
-func DispatchNotification(title, description string, color int, fields []*discordgo.MessageEmbedField, footer, channelID string, userIDs []string) {
+func DispatchNotification(title, description string, color int, fields []*discordgo.MessageEmbedField, footer, imageURL, channelID string, userIDs []string) {
 	if Session == nil {
 		log.Println("Bot session not initialized — cannot dispatch notification.")
 		return
@@ -331,7 +337,7 @@ func DispatchNotification(title, description string, color int, fields []*discor
 		finalFooter = "Discord Notifier • via webhook"
 	}
 
-	embed := BuildEmbed(title, description, color, fields, finalFooter)
+	embed := BuildEmbed(title, description, color, fields, finalFooter, imageURL)
 
 	targetChannelID := channelID
 	if targetChannelID == "" {
